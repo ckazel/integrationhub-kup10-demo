@@ -1,0 +1,75 @@
+name: KUP-10 isolated deployment
+run-name: KUP-10 ${{ inputs.operation }} · ${{ inputs.execution_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: Exact approved commit SHA
+        required: true
+        type: string
+      operation:
+        description: Deploy the candidate or restore the known good commit
+        required: true
+        type: choice
+        options: [deploy, rollback]
+      execution_id:
+        description: IntegrationHubAI Execution ID
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: kup10-demo-deployment
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check the approved input
+        env:
+          TARGET_SHA: ${{ inputs.target_sha }}
+          OPERATION: ${{ inputs.operation }}
+        run: |
+          [[ "$TARGET_SHA" =~ ^[a-f0-9]{40}$ ]] || exit 1
+          [[ "$OPERATION" == deploy || "$OPERATION" == rollback ]] || exit 1
+      - name: Check out the exact approved commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.target_sha }}
+          persist-credentials: false
+      - name: Build the isolated service
+        env:
+          TARGET_SHA: ${{ inputs.target_sha }}
+        run: node build.mjs
+      - name: Configure Pages
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+        with:
+          path: _site
+      - name: Deploy the exact artifact
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
+      - name: Confirm the deployed commit
+        env:
+          TARGET_SHA: ${{ inputs.target_sha }}
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error --max-time 10 "${PAGE_URL}health.json?run=${GITHUB_RUN_ID}&attempt=${attempt}" -o /tmp/kup10-health.json; then
+              if jq -e --arg sha "$TARGET_SHA" '.commitSha == $sha and .service == "integrationhub-kup10-demo"' /tmp/kup10-health.json; then
+                cat /tmp/kup10-health.json
+                exit 0
+              fi
+            fi
+            sleep 5
+          done
+          exit 1

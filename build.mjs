@@ -1,0 +1,13 @@
+import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+const sha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+const expected = process.env.TARGET_SHA;
+if (expected && (!/^[a-f0-9]{40}$/.test(expected) || sha !== expected)) throw new Error('The checkout does not match the approved commit.');
+const source = JSON.parse(await readFile('service-state.json', 'utf8'));
+if (!['healthy', 'unhealthy'].includes(source.status)) throw new Error('Unknown service state.');
+const state = { service: 'integrationhub-kup10-demo', target: 'github-pages', commitSha: sha, status: source.status };
+await mkdir('_site', { recursive: true });
+await writeFile('_site/health.json', JSON.stringify(state));
+await writeFile('_site/.nojekyll', '');
+await writeFile('_site/index.html', `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KUP-10 isolated demo</title><style>body{max-width:780px;margin:10vh auto;padding:24px;font:18px/1.6 system-ui;background:#102336;color:#edf4f9}code{overflow-wrap:anywhere;color:#91d9bf}h1{line-height:1.2}a{color:#91d9bf}</style><p>INTEGRATIONHUBAI · KUP-10</p><h1>Isolated deployment demo</h1><p>This service uses synthetic data. It is separate from the Fenikstech website.</p><p>Service status: <strong>${state.status}</strong></p><p>Deployed commit:<br><code>${sha}</code></p><p><a href="health.json">Read the deployment and health evidence</a></p></html>`);
+console.log(JSON.stringify(state));
