@@ -1,1 +1,1 @@
-{"status":"unhealthy","message":"The isolated demo service reports an intentional fault."}
+{"status":"healthy","message":"The isolated demo service is healthy."}
